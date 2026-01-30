@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CPU Scheduling Visualizer · Dark Sci-Fi</title>
+
+<style>
+/* ============= GLOBAL / THEME ============= */
+:root {
+    --bg: #020617;
+    --panel-bg: rgba(15, 23, 42, 0.95);
+    --panel-border: rgba(148, 163, 184, 0.4);
+    --panel-border-strong: rgba(148, 163, 184, 0.9);
+    --accent: #22c55e;
+    --accent-soft: rgba(34, 197, 94, 0.16);
+    --danger: #f97373;
+    --text-main: #e5e7eb;
+    --text-muted: #9ca3af;
+    --scanlines: repeating-linear-gradient(
+        to bottom,
+        rgba(15, 23, 42, 0.6) 0px,
+        rgba(15, 23, 42, 0.6) 1px,
+        rgba(15, 23, 42, 0.9) 2px
+    );
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    background:
+        radial-gradient(circle at top left, #0f172a 0, transparent 55%),
+        radial-gradient(circle at bottom right, #1f2937 0, transparent 55%),
+        #020617;
+    color: var(--text-main);
+    overflow-x: hidden;
+}
+
+/* Starfield dots */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+        radial-gradient(1px 1px at 10% 15%, rgba(148, 163, 184, 0.7) 0, transparent 45%),
+        radial-gradient(1px 1px at 80% 40%, rgba(148, 163, 184, 0.6) 0, transparent 45%),
+        radial-gradient(1px 1px at 30% 80%, rgba(148, 163, 184, 0.5) 0, transparent 45%);
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: -2;
+}
+
+/* Scanline overlay */
+.scanlines {
+    position: fixed;
+    inset: 0;
+    background: var(--scanlines);
+    mix-blend-mode: soft-light;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: -1;
+    animation: scanMove 12s linear infinite;
+}
+
+@keyframes scanMove {
+    0% { background-position-y: 0; }
+    100% { background-position-y: 200px; }
+}
+
+/* Glowing orbs */
+.orb {
+    position: fixed;
+    width: 350px;
+    height: 350px;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.45;
+    z-index: -3;
+}
+.orb-left {
+    background: #22c55e;
+    top: -80px;
+    left: -60px;
+}
+.orb-right {
+    background: #22d3ee;
+    bottom: -90px;
+    right: -40px;
+}
+
+/* ============= HEADER ============= */
+header {
+    padding: 18px 24px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    background:
+        conic-gradient(from 210deg, #22c55e, #22d3ee, #4ade80, #22c55e);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 30px rgba(34, 197, 94, 0.7);
+}
+.brand-logo span {
+    font-weight: 900;
+    font-size: 17px;
+    color: #020617;
+    text-shadow: 0 0 6px rgba(15, 23, 42, 0.6);
+}
+
+.brand-text-main {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.brand-text-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.tagline {
+    font-size: 12px;
+    border-radius: 999px;
+    padding: 5px 13px;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+    background: rgba(15, 23, 42, 0.9);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 0 12px rgba(15, 23, 42, 0.9);
+}
+.tagline span:first-child {
+    color: var(--accent);
+}
+
+/* ============= LAYOUT ============= */
+main {
+    padding: 0 18px 24px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    gap: 18px;
+}
+
+@media (max-width: 900px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Panels */
+.card {
+    background: var(--panel-bg);
+    border-radius: 16px;
+    border: 1px solid var(--panel-border);
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.9);
+    padding: 18px 18px 16px;
+    position: relative;
+    overflow: hidden;
+    transform: translateY(10px);
+    opacity: 0;
+    animation: panelIn 0.6s ease forwards;
+}
+.card:nth-child(1) { animation-delay: 0.08s; }
+.card:nth-child(2) { animation-delay: 0.16s; }
+
+@keyframes panelIn {
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 55%);
+    opacity: 0;
+    transition: opacity 0.25s ease-out;
+    pointer-events: none;
+}
+.card:hover::before {
+    opacity: 1;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.card-title {
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.card-title span {
+    color: var(--accent);
+}
+.pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--text-muted);
+}
+
+/* ============= FORM / INPUTS ============= */
+label {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 4px;
+}
+
+input, select {
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: 9px;
+    border: 1px solid rgba(51, 65, 85, 0.9);
+    background: rgba(15, 23, 42, 0.94);
+    color: var(--text-main);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, transform 0.12s ease;
+}
+input:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.55);
+    background: rgba(15, 23, 42, 1);
+    transform: translateY(-1px);
+}
+
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+/* ============= BUTTONS ============= */
+.btn {
+    width: 100%;
+    margin-top: 9px;
+    padding: 9px 10px;
+    border-radius: 999px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    transition: transform 0.12s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.12s ease;
+}
+.btn span.icon {
+    font-size: 14px;
+}
+.btn-primary {
+    background: radial-gradient(circle at top left, #4ade80, #22c55e);
+    color: #022c22;
+    box-shadow: 0 10px 25px rgba(34, 197, 94, 0.55);
+}
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px rgba(34, 197, 94, 0.7);
+}
+.btn-danger {
+    background: linear-gradient(135deg, #f97373, #ef4444);
+    color: #fff7ed;
+    box-shadow: 0 10px 24px rgba(248, 113, 113, 0.5);
+}
+.btn-danger:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px rgba(248, 113, 113, 0.8);
+}
+.btn-outline {
+    background: transparent;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    color: var(--text-muted);
+}
+.btn-outline:hover {
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--text-main);
+}
+
+/* ============= TABLE ============= */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+th, td {
+    padding: 7px 4px;
+    text-align: center;
+    border-bottom: 1px solid rgba(31, 41, 55, 0.9);
+}
+
+thead {
+    background: rgba(15, 23, 42, 0.98);
+}
+th {
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+tbody tr:nth-child(odd) {
+    background: rgba(15, 23, 42, 0.9);
+}
+tbody tr:nth-child(even) {
+    background: rgba(15, 23, 42, 0.8);
+}
+tbody tr {
+    transition: background 0.16s ease, transform 0.12s ease;
+}
+tbody tr:hover {
+    background: rgba(34, 197, 94, 0.12);
+    transform: translateY(-1px);
+}
+
+/* ============= GANTT CHART ============= */
+#ganttChart {
+    position: relative;
+    width: 100%;
+    height: 230px;
+    border-radius: 14px;
+    background:
+        radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 60%),
+        rgba(15, 23, 42, 0.96);
+    border: 1px solid var(--panel-border-strong);
+    margin-top: 12px;
+    overflow: hidden;
+}
+
+.gantt-bar {
+    position: absolute;
+    height: 32px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #020617;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.9);
+    animation: barIn 0.35s ease-out forwards;
+    opacity: 0;
+}
+@keyframes barIn {
+    from {
+        transform: translateY(18px) scale(0.98);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+.gantt-bar-label {
+    position: absolute;
+    top: -13px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.gantt-axis {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 4px 10px 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: linear-gradient(to top, rgba(15, 23, 42, 0.98), transparent);
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Empty state in Gantt */
+.gantt-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding-top: 90px;
+}
+
+/* ============= RESULTS ============= */
+#results {
+    margin-top: 10px;
+    white-space: pre;
+    background: rgba(15, 23, 42, 0.96);
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+    font-family: "JetBrains Mono", "Consolas", monospace;
+    font-size: 11px;
+    max-height: 190px;
+    overflow-y: auto;
+}
+
+/* Small label row above results */
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    margin-bottom: 4px;
+}
+.results-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.pill-mini {
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    color: var(--text-muted);
+}
+</style>
+</head>
+
+<body>
+<div class="scanlines"></div>
+<div class="orb orb-left"></div>
+<div class="orb orb-right"></div>
+
+<header>
+    <div class="brand">
+        <div class="brand-logo">
+            <span>CPU</span>
+        </div>
+        <div>
+            <div class="brand-text-main">SCHEDULING CORE</div>
+            <div class="brand-text-sub">Dark Sci-Fi OS Visualizer</div>
+        </div>
+    </div>
+    <div class="tagline">
+        <span>◎</span>
+        <span>FCFS · SJF · Priority · Round Robin</span>
+    </div>
+</header>
+
+<main>
+    <div class="grid">
+        <!-- LEFT CARD: PROCESS INPUT -->
+        <section class="card">
+            <div class="card-header">
+                <div class="card-title"><span>Step 1</span> · Define Processes</div>
+                <div class="pill">Process Console</div>
+            </div>
+
+            <div class="field-row">
+                <div>
+                    <label for="pid">Process ID</label>
+                    <input id="pid" placeholder="P1, P2, P3..." />
+                </div>
+                <div>
+                    <label for="arrival">Arrival Time</label>
+                    <input id="arrival" type="number" value="0" min="0" />
+                </div>
+            </div>
+
+            <div class="field-row">
+                <div>
+                    <label for="burst">Burst Time</label>
+                    <input id="burst" type="number" min="1" placeholder="e.g. 5" />
+                </div>
+                <div>
+                    <label for="priority">Priority (1 = High)</label>
+                    <input id="priority" type="number" min="1" placeholder="Optional" />
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="addProcess()">
+                <span class="icon">＋</span>
+                <span>Add Process</span>
+            </button>
+            <button class="btn btn-danger" onclick="clearAll()">
+                <span class="icon">🗑</span>
+                <span>Clear All</span>
+            </button>
+
+            <div style="margin-top:14px;font-size:11px;color:var(--text-muted);">
+                Hint: Use small values (0–20) for burst & arrival to keep the timeline readable during demo.
+            </div>
+
+            <div style="margin-top:18px;" class="card-header">
+                <div class="card-title"><span>Process Table</span></div>
+            </div>
+
+            <table id="processTable">
+                <thead>
+                    <tr>
+                        <th>PID</th>
+                        <th>Arrival</th>
+                        <th>Burst</th>
+                        <th>Priority</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </section>
+
+        <!-- RIGHT CARD: ALGO + GANTT + RESULTS -->
+        <section class="card">
+            <div class="card-header">
+                <div class="card-title"><span>Step 2</span> · Run Scheduler</div>
+                <div class="pill">Simulation Engine</div>
+            </div>
+
+            <div class="field-row" style="margin-bottom:6px;">
+                <div>
+                    <label for="algorithm">Algorithm</label>
+                    <select id="algorithm">
+                        <option value="FCFS">FCFS (First Come First Serve)</option>
+                        <option value="SJF">SJF (Shortest Job First)</option>
+                        <option value="PRIORITY">Priority (Non-preemptive)</option>
+                        <option value="RR">Round Robin</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="quantum">Time Quantum (RR)</label>
+                    <input id="quantum" type="number" min="1" value="2" />
+                </div>
+            </div>
+
+            <button class="btn btn-primary" onclick="runSimulation()">
+                <span class="icon">▶</span>
+                <span>Run Simulation</span>
+            </button>
+
+            <div style="margin-top:16px;" class="card-header">
+                <div class="card-title"><span>Gantt Chart</span> · Timeline</div>
+                <div class="pill">Visual CPU Timeline</div>
+            </div>
+
+            <div id="ganttChart">
+                <div class="gantt-empty">
+                    No simulation yet.<br />Add processes and run an algorithm to visualize scheduling here.
+                </div>
+            </div>
+
+            <div class="results-header">
+                <div class="results-title">Metrics · Waiting & Turnaround</div>
+                <div class="pill-mini" id="algoBadge">Algorithm: FCFS</div>
+            </div>
+            <div id="results">No simulation yet.</div>
+        </section>
+    </div>
+</main>
+
+<script>
+/* ================== STATE ================== */
+let processes = [];
+
+function addProcess() {
+    const pidVal = document.getElementById("pid").value.trim();
+    const arrivalStr = document.getElementById("arrival").value;
+    const burstStr = document.getElementById("burst").value;
+    const priorityStr = document.getElementById("priority").value;
+
+    if (!pidVal || arrivalStr === "" || burstStr === "") {
+        alert("PID, Arrival Time, and Burst Time are required.");
+        return;
+    }
+
+    if (processes.some(p => p.pid === pidVal)) {
+        alert("PID must be unique.");
+        return;
+    }
+
+    const arrival = parseInt(arrivalStr, 10);
+    const burst = parseInt(burstStr, 10);
+
+    if (isNaN(arrival) || isNaN(burst) || burst <= 0) {
+        alert("Arrival and Burst must be valid integers (Burst > 0).");
+        return;
+    }
+
+    const priority = priorityStr ? parseInt(priorityStr, 10) : 999;
+
+    processes.push({ pid: pidVal, arrival, burst, priority });
+    renderProcessTable();
+    resetGantt();
+    document.getElementById("results").textContent =
+        "Processes updated. Choose an algorithm and run the simulation.";
+
+    // clear some inputs for faster next entry
+    document.getElementById("pid").value = "";
+    document.getElementById("burst").value = "";
+}
+
+function renderProcessTable() {
+    const tbody = document.querySelector("#processTable tbody");
+    tbody.innerHTML = "";
+
+    if (!processes.length) {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td colspan="4" style="font-size:11px;color:var(--text-muted);padding:10px;">
+            No processes defined.
+        </td>`;
+        tbody.appendChild(row);
+        return;
+    }
+
+    processes.forEach(p => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td>${p.pid}</td>
+            <td>${p.arrival}</td>
+            <td>${p.burst}</td>
+            <td>${p.priority === 999 ? "-" : p.priority}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function clearAll() {
+    if (!processes.length) return;
+    if (!confirm("Clear all processes and results?")) return;
+    processes = [];
+    renderProcessTable();
+    resetGantt();
+    document.getElementById("results").textContent = "No simulation yet.";
+}
+
+function resetGantt() {
+    const chart = document.getElementById("ganttChart");
+    chart.innerHTML = `
+        <div class="gantt-empty">
+            No simulation yet.<br />Add processes and run an algorithm to visualize scheduling here.
+        </div>
+    `;
+}
+
+/* ================== ALGORITHMS ================== */
+function fcfs(list) {
+    list.sort((a, b) => a.arrival - b.arrival);
+    let time = 0;
+    const timeline = [];
+    const result = {};
+
+    list.forEach(p => {
+        const start = Math.max(time, p.arrival);
+        const end = start + p.burst;
+        timeline.push({ pid: p.pid, start, end });
+        result[p.pid] = {
+            waiting: start - p.arrival,
+            turnaround: end - p.arrival,
+            burst: p.burst
+        };
+        time = end;
+    });
+    return { timeline, result };
+}
+
+function sjf(list) {
+    let procs = [...list];
+    let time = 0;
+    const timeline = [];
+    const result = {};
+
+    while (procs.length) {
+        let ready = procs.filter(p => p.arrival <= time);
+        if (!ready.length) {
+            time = Math.min(...procs.map(p => p.arrival));
+            ready = procs.filter(p => p.arrival <= time);
+        }
+        ready.sort((a, b) => a.burst - b.burst);
+        const p = ready[0];
+        const start = time;
+        const end = time + p.burst;
+        timeline.push({ pid: p.pid, start, end });
+        result[p.pid] = {
+            waiting: start - p.arrival,
+            turnaround: end - p.arrival,
+            burst: p.burst
+        };
+        time = end;
+        procs = procs.filter(x => x.pid !== p.pid);
+    }
+    return { timeline, result };
+}
+
+function priorityAlgo(list) {
+    let procs = [...list];
+    let time = 0;
+    const timeline = [];
+    const result = {};
+
+    while (procs.length) {
+        let ready = procs.filter(p => p.arrival <= time);
+        if (!ready.length) {
+            time = Math.min(...procs.map(p => p.arrival));
+            ready = procs.filter(p => p.arrival <= time);
+        }
+        ready.sort((a, b) => a.priority - b.priority);
+        const p = ready[0];
+        const start = time;
+        const end = time + p.burst;
+        timeline.push({ pid: p.pid, start, end });
+        result[p.pid] = {
+            waiting: start - p.arrival,
+            turnaround: end - p.arrival,
+            burst: p.burst
+        };
+        time = end;
+        procs = procs.filter(x => x.pid !== p.pid);
+    }
+    return { timeline, result };
+}
+
+function rr(list, quantum) {
+    let time = 0;
+    const timeline = [];
+    const result = {};
+    const procs = list.map(p => ({ ...p, remaining: p.burst }));
+    const arrived = [...procs].sort((a, b) => a.arrival - b.arrival);
+    let idx = 0;
+    let queue = [];
+
+    if (!procs.length) return { timeline, result };
+    time = Math.min(...procs.map(p => p.arrival));
+
+    while (Object.keys(result).length < procs.length) {
+        while (idx < arrived.length && arrived[idx].arrival <= time) {
+            queue.push(arrived[idx]);
+            idx++;
+        }
+
+        if (!queue.length) {
+            if (idx < arrived.length) {
+                time = arrived[idx].arrival;
+                continue;
+            } else break;
+        }
+
+        const p = queue.shift();
+        if (p.remaining <= 0) continue;
+
+        const start = time;
+        const run = Math.min(quantum, p.remaining);
+        time += run;
+        const end = time;
+        timeline.push({ pid: p.pid, start, end });
+        p.remaining -= run;
+
+        while (idx < arrived.length && arrived[idx].arrival <= time) {
+            queue.push(arrived[idx]);
+            idx++;
+        }
+
+        if (p.remaining > 0) {
+            queue.push(p);
+        } else {
+            const turnaround = end - p.arrival;
+            const waiting = turnaround - p.burst;
+            result[p.pid] = {
+                waiting,
+                turnaround,
+                burst: p.burst
+            };
+        }
+    }
+    return { timeline, result };
+}
+
+/* ================== GANTT CHART ================== */
+function pastelColor(seed) {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = hash % 360;
+    return `hsl(${h}, 75%, 70%)`;
+}
+
+function drawGantt(timeline) {
+    const chart = document.getElementById("ganttChart");
+    chart.innerHTML = "";
+    if (!timeline.length) {
+        resetGantt();
+        return;
+    }
+
+    const maxEnd = Math.max(...timeline.map(t => t.end));
+    const minStart = Math.min(...timeline.map(t => t.start));
+    const totalSpan = maxEnd - minStart || 1;
+    const width = chart.clientWidth;
+    const padding = 18;
+    const usableWidth = width - padding * 2;
+
+    const lanes = [];
+    function findLane(start, end) {
+        for (let i = 0; i < lanes.length; i++) {
+            if (lanes[i] <= start) {
+                lanes[i] = end;
+                return i;
+            }
+        }
+        lanes.push(end);
+        return lanes.length - 1;
+    }
+
+    timeline.forEach((t, index) => {
+        const lane = findLane(t.start, t.end);
+        const xStart = padding + ((t.start - minStart) / totalSpan) * usableWidth;
+        const xEnd = padding + ((t.end - minStart) / totalSpan) * usableWidth;
+        const barWidth = Math.max(24, xEnd - xStart);
+        const laneHeight = 40;
+        const top = 30 + lane * laneHeight;
+
+        const bar = document.createElement("div");
+        bar.className = "gantt-bar";
+        bar.style.left = `${xStart}px`;
+        bar.style.top = `${top}px`;
+        bar.style.width = `${barWidth}px`;
+        bar.style.background = pastelColor(t.pid);
+        bar.style.animationDelay = `${index * 60}ms`;
+        bar.title = `${t.pid} [${t.start} - ${t.end}]`;
+
+        const label = document.createElement("div");
+        label.className = "gantt-bar-label";
+        label.textContent = `${t.start} → ${t.end}`;
+        bar.appendChild(label);
+
+        const text = document.createElement("span");
+        text.textContent = t.pid;
+        bar.appendChild(text);
+
+        chart.appendChild(bar);
+    });
+
+    const axis = document.createElement("div");
+    axis.className = "gantt-axis";
+    axis.innerHTML = `<span>${minStart}</span><span>Time</span><span>${maxEnd}</span>`;
+    chart.appendChild(axis);
+}
+
+/* ================== RESULTS ================== */
+function showResults(resultObj) {
+    const box = document.getElementById("results");
+    const keys = Object.keys(resultObj);
+    if (!keys.length) {
+        box.textContent = "No results computed.";
+        return;
+    }
+
+    let lines = ["PID\tBurst\tWait\tTurnaround"];
+    let totalW = 0;
+    let totalT = 0;
+    keys.sort().forEach(pid => {
+        const r = resultObj[pid];
+        lines.push(`${pid}\t${r.burst}\t${r.waiting}\t${r.turnaround}`);
+        totalW += r.waiting;
+        totalT += r.turnaround;
+    });
+
+    const n = keys.length;
+    lines.push("");
+    lines.push(`Average Waiting Time   : ${(totalW / n).toFixed(2)}`);
+    lines.push(`Average Turnaround Time: ${(totalT / n).toFixed(2)}`);
+
+    box.textContent = lines.join("\n");
+}
+
+/* ================== RUN SIMULATION ================== */
+function runSimulation() {
+    if (!processes.length) {
+        alert("Add at least one process before running the simulation.");
+        return;
+    }
+
+    const algo = document.getElementById("algorithm").value;
+    const quantumStr = document.getElementById("quantum").value;
+    const algoBadge = document.getElementById("algoBadge");
+    algoBadge.textContent = `Algorithm: ${algo}`;
+
+    const list = processes.map(p => ({ ...p }));
+    let data;
+
+    try {
+        if (algo === "FCFS") {
+            data = fcfs(list);
+        } else if (algo === "SJF") {
+            data = sjf(list);
+        } else if (algo === "PRIORITY") {
+            data = priorityAlgo(list);
+        } else if (algo === "RR") {
+            const q = parseInt(quantumStr, 10);
+            if (isNaN(q) || q <= 0) {
+                alert("Enter a valid positive quantum for Round Robin.");
+                return;
+            }
+            data = rr(list, q);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("An error occurred while running the simulation.");
+        return;
+    }
+
+    drawGantt(data.timeline);
+    showResults(data.result);
+}
+
+/* Initial table & gantt */
+renderProcessTable();
+resetGantt();
+</script>
+</body>
+</html>
+"<!-- update -->" 
+"<!-- update 2 -->" 
+"<!-- small update 4 -->" 
+"<!-- more html -->" 
